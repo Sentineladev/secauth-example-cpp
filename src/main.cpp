@@ -1,6 +1,7 @@
 #include "client.h"
 
 #include <windows.h>
+#include <conio.h>
 
 #include <iostream>
 #include <string>
@@ -53,16 +54,35 @@ std::string Trim(std::string value) {
 
 std::string Ask(const char* label, bool hidden = false) {
     std::cout << "  " << kDim << label << kReset << std::flush;
-    const HANDLE input = GetStdHandle(STD_INPUT_HANDLE);
-    DWORD mode = 0;
-    const bool mask = hidden && GetConsoleMode(input, &mode) != 0;
-    if (mask) SetConsoleMode(input, mode & ~ENABLE_ECHO_INPUT);
-    std::string value;
-    std::getline(std::cin, value);
-    if (mask) {
-        SetConsoleMode(input, mode);
-        std::cout << "\n";
+
+    if (!hidden) {
+        std::string value;
+        std::getline(std::cin, value);
+        return Trim(value);
     }
+
+    // Palavra-passe: lê tecla a tecla e mostra um asterisco por cada caractere.
+    std::string value;
+    for (;;) {
+        const int key = _getch();
+        if (key == -1) { // sem consola interativa: lê o resto da linha normalmente
+            std::getline(std::cin, value);
+            break;
+        }
+        if (key == '\r' || key == '\n') break;
+        if (key == '\b') {
+            if (!value.empty()) {
+                value.pop_back();
+                std::cout << "\b \b" << std::flush;
+            }
+        } else if (key == 0 || key == 0xE0) {
+            _getch(); // descarta o segundo byte de teclas especiais (setas, F1-F12)
+        } else {
+            value.push_back(static_cast<char>(key));
+            std::cout << '*' << std::flush;
+        }
+    }
+    std::cout << "\n";
     return Trim(value);
 }
 
