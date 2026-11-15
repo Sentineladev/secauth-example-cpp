@@ -5,6 +5,19 @@
 #include <iostream>
 #include <string>
 
+// As macros SECAUTH_* são definidas pelo MSBuild (tarefa ReadSecAuthConfig) a partir de
+// config/config.h. Este bloco de reserva serve apenas para o IntelliSense do Visual Studio,
+// que não executa essa tarefa: na compilação real os valores vêm sempre do config.h.
+#ifndef SECAUTH_SERVER
+#define SECAUTH_SERVER L"https://seu-servidor.example.com"
+#endif
+#ifndef SECAUTH_APP_ID
+#define SECAUTH_APP_ID "000000000000000000000000"
+#endif
+#ifndef SECAUTH_CREDENTIAL
+#define SECAUTH_CREDENTIAL "0000000000000000000000000000000000000000000000000000000000000000"
+#endif
+
 namespace {
 
 constexpr const char* kReset = "\x1b[0m";
