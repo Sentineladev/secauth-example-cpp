@@ -1,0 +1,21 @@
+# Saída de build
+/bin/
+/obj/
+
+# Visual Studio
+/.vs/
+*.user
+*.suo
+*.VC.db
+*.VC.opendb
+*.ipch
+*.sdf
+
+# Debug/Release intermediários
+*.ilk
+*.pdb
+*.obj
+*.tlog
+*.lastbuildstate
+*.res
+*.recipe
