@@ -3,20 +3,11 @@
   <ItemGroup>
     <Filter Include="Código-fonte" />
     <Filter Include="Configuração" />
-    <Filter Include="Dependências" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\client.cpp"><Filter>Código-fonte</Filter></ClCompile>
     <ClCompile Include="src\main.cpp"><Filter>Código-fonte</Filter></ClCompile>
-    <ClCompile Include="third_party\imgui\imgui.cpp"><Filter>Dependências</Filter></ClCompile>
-    <ClCompile Include="third_party\imgui\imgui_draw.cpp"><Filter>Dependências</Filter></ClCompile>
-    <ClCompile Include="third_party\imgui\imgui_widgets.cpp"><Filter>Dependências</Filter></ClCompile>
-    <ClCompile Include="third_party\imgui\imgui_tables.cpp"><Filter>Dependências</Filter></ClCompile>
-    <ClCompile Include="third_party\imgui\backends\imgui_impl_win32.cpp"><Filter>Dependências</Filter></ClCompile>
-    <ClCompile Include="third_party\imgui\backends\imgui_impl_dx11.cpp"><Filter>Dependências</Filter></ClCompile>
-    <ClCompile Include="third_party\imgui\addons\ImAdd.cpp"><Filter>Dependências</Filter></ClCompile>
     <ClInclude Include="src\client.h"><Filter>Código-fonte</Filter></ClInclude>
     <None Include="config\config.h"><Filter>Configuração</Filter></None>
-    <ClInclude Include="third_party\skStr.h"><Filter>Dependências</Filter></ClInclude>
   </ItemGroup>
 </Project>

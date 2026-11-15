@@ -1,17 +1,25 @@
 # SecAuth — Exemplo de Cliente C++
 
-Exemplo de integração de um cliente desktop com a plataforma **SecAuth**, usando **ImGui + DirectX 11**.
+Exemplo de integração de um software Windows com a plataforma **SecAuth**, usando apenas uma aplicação de consola e a API do Windows.
 
-## Como funciona
+O exemplo não usa bibliotecas de interface gráfica: é uma consola simples, com menu, para mostrar o fluxo de autenticação.
 
-O cliente se comunica com a API do SecAuth para:
+## O que o exemplo faz
 
-- **Cadastro** (`Register`) — vincula uma licença a um usuário e dispositivo
-- **Login** (`Login`) — autentica o usuário e inicia uma sessão
-- **Atualização** (`Refresh`) — renova a sessão periodicamente
-- **Logout** (`Logout`) — encerra a sessão
+Ao executar, aparece um menu:
 
-A sessão é verificada automaticamente a cada minuto e ao expirar.
+```
+  [1] Registar licença
+  [2] Iniciar sessão
+  [3] Estado da sessão
+  [4] Terminar sessão
+  [0] Sair
+```
+
+- **Registar licença** — vincula uma licença a um utilizador e a este dispositivo
+- **Iniciar sessão** — autentica o utilizador e abre a sessão
+- **Estado da sessão** — consulta a sessão atual
+- **Terminar sessão** — encerra a sessão
 
 ## Configuração
 
@@ -19,13 +27,15 @@ Em `config/config.h`, preencha as credenciais da sua aplicação:
 
 ```cpp
 namespace ClientSettings {
-constexpr char Server[]    = "https://seu-servidor";       // URL da sua aplicação
-constexpr char AppId[]     = "SEU_APP_ID";                 // App ID (24 caracteres hex)
-constexpr char SecretKey[] = "SUA_SECRET_KEY";             // Chave mestra (64 caracteres hex)
+constexpr char Server[]    = "https://seu-servidor";
+constexpr char AppId[]     = "SEU_APP_ID";                 // 24 caracteres hexadecimais
+constexpr char SecretKey[] = "SUA_SECRET_KEY";             // 64 caracteres hexadecimais
 }
 ```
 
-> A `SecretKey` é usada apenas na compilação para derivar a credencial de conexão. Ela nunca é enviada pela rede.
+O `AppId` e a `SecretKey` estão no painel, em **Aplicação → Configurações**.
+
+> A `SecretKey` só é usada durante a compilação, para derivar a credencial do cliente. Ela nunca é enviada pela rede.
 
 ## Compilação
 
@@ -33,15 +43,17 @@ constexpr char SecretKey[] = "SUA_SECRET_KEY";             // Chave mestra (64 c
 2. Selecione a configuração **Release | x64**
 3. Compile o projeto
 
+Nenhuma dependência externa precisa de ser instalada.
+
 ## Integração no seu projeto
 
-Copie os seguintes arquivos para o seu projeto:
+Copie estes ficheiros para o seu projeto:
 
 - `src/client.h`
 - `src/client.cpp`
 - `third_party/json.hpp`
 
-Inclua a pasta `third_party` no caminho de cabeçalhos e vincule as bibliotecas:
+Inclua `third_party` no caminho de cabeçalhos e vincule as bibliotecas:
 
 ```
 winhttp.lib
@@ -55,27 +67,26 @@ Uso básico:
 #include "client.h"
 
 SecAuth::Client client(
-    "https://seu-servidor",
+    L"https://seu-servidor",
     "SEU_APP_ID",
-    "credencial_derivada"
+    "CREDENCIAL_DERIVADA"
 );
 
-// Cadastrar um usuário com uma licença
-client.Register("usuario", "senha", "SUA-LICENCA");
+// Criar a conta e vincular a licença (apenas no primeiro acesso)
+client.Register("utilizador", "email@exemplo.com", "palavra-passe", "SUA-LICENCA");
 
-// Fazer login
-client.Login("usuario", "senha");
+// Autenticar antes de liberar o seu software
+SecAuth::Profile profile = client.Login("utilizador", "palavra-passe");
 
-// Renovar a sessão (chame periodicamente)
-client.Refresh();
+// Consultar a sessão periodicamente
+profile = client.Refresh();
 
 // Encerrar a sessão
 client.Logout();
 ```
 
-> As operações de rede são bloqueantes. Execute-as em uma thread de trabalho, serializadas para cada instância.
+> As operações de rede são bloqueantes. Execute-as numa thread de trabalho, serializadas para cada instância.
 
 ## Licenças de terceiros
 
-- [Dear ImGui](https://github.com/ocornut/imgui) — MIT
 - [nlohmann/json](https://github.com/nlohmann/json) — MIT
