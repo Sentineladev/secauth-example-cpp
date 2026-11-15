@@ -5,17 +5,14 @@
 #include <iostream>
 #include <string>
 
-// As macros SECAUTH_* são definidas pelo MSBuild (tarefa ReadSecAuthConfig) a partir de
-// config/config.h. Este bloco de reserva serve apenas para o IntelliSense do Visual Studio,
-// que não executa essa tarefa: na compilação real os valores vêm sempre do config.h.
 #ifndef SECAUTH_SERVER
-#define SECAUTH_SERVER L"https://seu-servidor.example.com"
+#define SECAUTH_SERVER L""
 #endif
 #ifndef SECAUTH_APP_ID
-#define SECAUTH_APP_ID "000000000000000000000000"
+#define SECAUTH_APP_ID ""
 #endif
 #ifndef SECAUTH_CREDENTIAL
-#define SECAUTH_CREDENTIAL "0000000000000000000000000000000000000000000000000000000000000000"
+#define SECAUTH_CREDENTIAL ""
 #endif
 
 namespace {
@@ -54,7 +51,6 @@ std::string Trim(std::string value) {
     return value.substr(first, last - first + 1);
 }
 
-// Lê uma linha do utilizador. Com hidden = true, o que é digitado não aparece no ecrã.
 std::string Ask(const char* label, bool hidden = false) {
     std::cout << "  " << kDim << label << kReset << std::flush;
     const HANDLE input = GetStdHandle(STD_INPUT_HANDLE);
@@ -79,7 +75,7 @@ void Show(const SecAuth::Profile& profile) {
     const long long hours = profile.remainingSeconds / 3600;
     const long long minutes = (profile.remainingSeconds % 3600) / 60;
     std::cout << "\n" << kGood << "  Sessão ativa.\n" << kReset
-              << "  " << kDim << "Utilizador" << kReset << "  " << profile.username << "\n"
+              << "  " << kDim << "Usuário   " << kReset << "  " << profile.username << "\n"
               << "  " << kDim << "Ativada em" << kReset << "  " << profile.activatedAt << "\n"
               << "  " << kDim << "Expira em " << kReset << "  " << profile.expiresAt
               << kDim << "  (" << hours << "h " << minutes << "m)" << kReset << "\n";
@@ -109,7 +105,7 @@ void Run(SecAuth::Client& client) {
             }
 
             if (option == "1") {
-                const std::string username = Ask("Utilizador   : ");
+                const std::string username = Ask("Usuário      : ");
                 const std::string email = Ask("E-mail       : ");
                 const std::string password = Ask("Palavra-passe: ", true);
                 const std::string license = Ask("Licença      : ");
@@ -120,10 +116,10 @@ void Run(SecAuth::Client& client) {
                     std::cout << kGood << "\n  Conta criada. Use a opção 2 para iniciar sessão.\n" << kReset;
                 }
             } else if (option == "2") {
-                const std::string username = Ask("Utilizador   : ");
+                const std::string username = Ask("Usuário      : ");
                 const std::string password = Ask("Palavra-passe: ", true);
                 if (username.empty() || password.empty()) {
-                    std::cout << kBad << "\n  Preencha o utilizador e a palavra-passe.\n" << kReset;
+                    std::cout << kBad << "\n  Preencha o usuário e a palavra-passe.\n" << kReset;
                 } else {
                     loggedIn = true;
                     Show(client.Login(username, password));

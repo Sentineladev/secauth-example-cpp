@@ -16,8 +16,8 @@ Ao executar, aparece um menu:
   [0] Sair
 ```
 
-- **Registar licença** — vincula uma licença a um utilizador e a este dispositivo
-- **Iniciar sessão** — autentica o utilizador e abre a sessão
+- **Registar licença** — vincula uma licença a um usuário e a este dispositivo
+- **Iniciar sessão** — autentica o usuário e abre a sessão
 - **Estado da sessão** — consulta a sessão atual
 - **Terminar sessão** — encerra a sessão
 
@@ -73,10 +73,10 @@ SecAuth::Client client(
 );
 
 // Criar a conta e vincular a licença (apenas no primeiro acesso)
-client.Register("utilizador", "email@exemplo.com", "palavra-passe", "SUA-LICENCA");
+client.Register("usuario", "email@exemplo.com", "palavra-passe", "SUA-LICENCA");
 
 // Autenticar antes de liberar o seu software
-SecAuth::Profile profile = client.Login("utilizador", "palavra-passe");
+SecAuth::Profile profile = client.Login("usuario", "palavra-passe");
 
 // Consultar a sessão periodicamente
 profile = client.Refresh();
