@@ -137,7 +137,8 @@ void Show(const SecAuth::Profile& profile) {
 }
 
 void Menu() {
-    std::cout << "\n"
+    std::cout << "\n" << kAccent << kBold << "  SECAUTH" << kReset << kDim
+              << "   Cliente de exemplo (C++)\n" << kReset << "\n"
               << "  " << kAccent << "[1]" << kReset << " Registar licença\n"
               << "  " << kAccent << "[2]" << kReset << " Iniciar sessão\n"
               << "  " << kAccent << "[3]" << kReset << " Estado da sessão\n"
@@ -148,10 +149,11 @@ void Menu() {
 void Run(SecAuth::Client& client) {
     bool loggedIn = false;
     for (;;) {
+        Clear();
         Menu();
         const std::string option = Ask("Opção: ");
         if (!std::cin) return;
-        std::cout << "\n";
+        Clear();
 
         try {
             if (option == "0") {
@@ -160,6 +162,7 @@ void Run(SecAuth::Client& client) {
             }
 
             if (option == "1") {
+                std::cout << "\n  Registar licença\n\n";
                 const std::string username = Ask("Usuário      : ");
                 const std::string email = Ask("E-mail       : ");
                 const std::string password = Ask("Palavra-passe: ", true);
@@ -167,17 +170,21 @@ void Run(SecAuth::Client& client) {
                 if (username.empty() || email.empty() || password.empty() || license.empty()) {
                     Fail("Preencha todos os campos.");
                 } else {
+                    Clear();
                     client.Register(username, email, password, license);
                     std::cout << kGood << "\n  Conta criada. Use a opção 2 para iniciar sessão.\n" << kReset;
                 }
             } else if (option == "2") {
+                std::cout << "\n  Iniciar sessão\n\n";
                 const std::string username = Ask("Usuário      : ");
                 const std::string password = Ask("Palavra-passe: ", true);
                 if (username.empty() || password.empty()) {
                     Fail("Preencha o usuário e a palavra-passe.");
                 } else {
+                    Clear();
+                    const SecAuth::Profile profile = client.Login(username, password);
                     loggedIn = true;
-                    Show(client.Login(username, password));
+                    Show(profile);
                 }
             } else if (option == "3") {
                 if (!loggedIn) {
@@ -207,11 +214,6 @@ void Run(SecAuth::Client& client) {
 
 int main() {
     PrepareConsole();
-
-    std::cout << "\n" << kAccent << kBold
-              << "  SECAUTH" << kReset << kDim
-              << "   Cliente de exemplo (C++)\n" << kReset
-              << kDim << "  " << ClientSettings::Server << kReset << "\n";
 
     try {
         const std::string appId = Lower(ClientSettings::AppId);
