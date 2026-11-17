@@ -1,20 +1,14 @@
 #include "client.h"
+#include "../config/config.h"
 
 #include <windows.h>
+#include <bcrypt.h>
 #include <conio.h>
 
+#include <cctype>
 #include <iostream>
+#include <stdexcept>
 #include <string>
-
-#ifndef SECAUTH_SERVER
-#define SECAUTH_SERVER L""
-#endif
-#ifndef SECAUTH_APP_ID
-#define SECAUTH_APP_ID ""
-#endif
-#ifndef SECAUTH_CREDENTIAL
-#define SECAUTH_CREDENTIAL ""
-#endif
 
 namespace {
 
@@ -35,13 +29,45 @@ void PrepareConsole() {
     }
 }
 
-std::string Narrow(const std::wstring& value) {
+std::wstring Wide(const std::string& value) {
     if (value.empty()) return {};
-    const int size = WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()),
-                                         nullptr, 0, nullptr, nullptr);
-    std::string result(size, '\0');
-    WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()),
-                        &result[0], size, nullptr, nullptr);
+    const int size = MultiByteToWideChar(CP_UTF8, 0, value.data(), static_cast<int>(value.size()),
+                                         nullptr, 0);
+    std::wstring result(size, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), &result[0], size);
+    return result;
+}
+
+std::string Lower(std::string value) {
+    for (char& character : value) {
+        character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+    }
+    return value;
+}
+
+// Credencial do cliente desktop: HMAC-SHA256(SecretKey, "secauth:desktop:v1:" + AppId).
+std::string Credential(const std::string& appId, const std::string& secret) {
+    BCRYPT_ALG_HANDLE algorithm = nullptr;
+    if (BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_SHA256_ALGORITHM, nullptr,
+                                    BCRYPT_ALG_HANDLE_HMAC_FLAG) < 0) {
+        throw std::runtime_error("HMAC-SHA256 indisponível.");
+    }
+    const std::string message = "secauth:desktop:v1:" + appId;
+    unsigned char digest[32] = {};
+    const auto status = BCryptHash(algorithm,
+        reinterpret_cast<PUCHAR>(const_cast<char*>(secret.data())), static_cast<ULONG>(secret.size()),
+        reinterpret_cast<PUCHAR>(const_cast<char*>(message.data())), static_cast<ULONG>(message.size()),
+        digest, sizeof(digest));
+    BCryptCloseAlgorithmProvider(algorithm, 0);
+    if (status < 0) throw std::runtime_error("Falha ao gerar a credencial do cliente.");
+
+    const char hex[] = "0123456789abcdef";
+    std::string result;
+    result.reserve(sizeof(digest) * 2);
+    for (const unsigned char byte : digest) {
+        result += hex[byte >> 4];
+        result += hex[byte & 15];
+    }
     return result;
 }
 
@@ -55,7 +81,9 @@ std::string Trim(std::string value) {
 std::string Ask(const char* label, bool hidden = false) {
     std::cout << "  " << kDim << label << kReset << std::flush;
 
-    if (!hidden) {
+    // Sem consola interativa (entrada redirecionada): lê a linha normalmente.
+    DWORD mode = 0;
+    if (!hidden || !GetConsoleMode(GetStdHandle(STD_INPUT_HANDLE), &mode)) {
         std::string value;
         std::getline(std::cin, value);
         return Trim(value);
@@ -65,10 +93,7 @@ std::string Ask(const char* label, bool hidden = false) {
     std::string value;
     for (;;) {
         const int key = _getch();
-        if (key == -1) { // sem consola interativa: lê o resto da linha normalmente
-            std::getline(std::cin, value);
-            break;
-        }
+        if (key == -1) break;
         if (key == '\r' || key == '\n') break;
         if (key == '\b') {
             if (!value.empty()) {
@@ -84,6 +109,16 @@ std::string Ask(const char* label, bool hidden = false) {
     }
     std::cout << "\n";
     return Trim(value);
+}
+
+void Clear() {
+    std::cout << "\x1b[2J\x1b[H" << std::flush;
+}
+
+// Limpa o ecrã antes de mostrar um erro, para não acumular o histórico no terminal.
+void Fail(const std::string& message) {
+    Clear();
+    std::cout << kBad << "\n  " << message << "\n" << kReset;
 }
 
 void Pause() {
@@ -130,7 +165,7 @@ void Run(SecAuth::Client& client) {
                 const std::string password = Ask("Palavra-passe: ", true);
                 const std::string license = Ask("Licença      : ");
                 if (username.empty() || email.empty() || password.empty() || license.empty()) {
-                    std::cout << kBad << "\n  Preencha todos os campos.\n" << kReset;
+                    Fail("Preencha todos os campos.");
                 } else {
                     client.Register(username, email, password, license);
                     std::cout << kGood << "\n  Conta criada. Use a opção 2 para iniciar sessão.\n" << kReset;
@@ -139,14 +174,14 @@ void Run(SecAuth::Client& client) {
                 const std::string username = Ask("Usuário      : ");
                 const std::string password = Ask("Palavra-passe: ", true);
                 if (username.empty() || password.empty()) {
-                    std::cout << kBad << "\n  Preencha o usuário e a palavra-passe.\n" << kReset;
+                    Fail("Preencha o usuário e a palavra-passe.");
                 } else {
                     loggedIn = true;
                     Show(client.Login(username, password));
                 }
             } else if (option == "3") {
                 if (!loggedIn) {
-                    std::cout << kBad << "\n  Inicie sessão primeiro.\n" << kReset;
+                    Fail("Inicie sessão primeiro.");
                 } else {
                     Show(client.Refresh());
                 }
@@ -155,11 +190,11 @@ void Run(SecAuth::Client& client) {
                 loggedIn = false;
                 std::cout << kGood << "\n  Sessão terminada.\n" << kReset;
             } else {
-                std::cout << kBad << "\n  Opção inválida.\n" << kReset;
+                Fail("Opção inválida.");
             }
         } catch (const std::exception& error) {
             loggedIn = false;
-            std::cout << kBad << "\n  " << error.what() << "\n" << kReset;
+            Fail(error.what());
         }
 
         if (!std::cin) return;
@@ -176,13 +211,15 @@ int main() {
     std::cout << "\n" << kAccent << kBold
               << "  SECAUTH" << kReset << kDim
               << "   Cliente de exemplo (C++)\n" << kReset
-              << kDim << "  " << Narrow(SECAUTH_SERVER) << kReset << "\n";
+              << kDim << "  " << ClientSettings::Server << kReset << "\n";
 
     try {
-        SecAuth::Client client(SECAUTH_SERVER, SECAUTH_APP_ID, SECAUTH_CREDENTIAL);
+        const std::string appId = Lower(ClientSettings::AppId);
+        SecAuth::Client client(Wide(ClientSettings::Server), appId,
+                               Credential(appId, ClientSettings::SecretKey));
         Run(client);
     } catch (const std::exception& error) {
-        std::cout << kBad << "\n  " << error.what() << "\n" << kReset;
+        Fail(error.what());
         return 1;
     }
 

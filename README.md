@@ -23,11 +23,11 @@ Ao executar, aparece um menu:
 
 ## Configuração
 
-Em `config/config.h`, preencha as credenciais da sua aplicação:
+Crie `config/config.local.h` e preencha as credenciais da sua aplicação:
 
 ```cpp
 namespace ClientSettings {
-constexpr char Server[]    = "https://seu-servidor";
+constexpr char Server[]    = "https://api.getsecauth.com";
 constexpr char AppId[]     = "SEU_APP_ID";                 // 24 caracteres hexadecimais
 constexpr char SecretKey[] = "SUA_SECRET_KEY";             // 64 caracteres hexadecimais
 }
@@ -35,7 +35,7 @@ constexpr char SecretKey[] = "SUA_SECRET_KEY";             // 64 caracteres hexa
 
 O `AppId` e a `SecretKey` estão no painel, em **Aplicação → Configurações**.
 
-> A `SecretKey` só é usada durante a compilação, para derivar a credencial do cliente. Ela nunca é enviada pela rede.
+O Git ignora `config/config.local.h`. O exemplo deriva a credencial do cliente com HMAC-SHA256 e envia essa credencial à API.
 
 ## Compilação
 
@@ -51,9 +51,8 @@ Copie estes ficheiros para o seu projeto:
 
 - `src/client.h`
 - `src/client.cpp`
-- `third_party/json.hpp`
 
-Inclua `third_party` no caminho de cabeçalhos e vincule as bibliotecas:
+Vincule as bibliotecas:
 
 ```
 winhttp.lib
@@ -67,7 +66,7 @@ Uso básico:
 #include "client.h"
 
 SecAuth::Client client(
-    L"https://seu-servidor",
+    L"https://api.getsecauth.com",
     "SEU_APP_ID",
     "CREDENCIAL_DERIVADA"
 );
@@ -87,6 +86,6 @@ client.Logout();
 
 > As operações de rede são bloqueantes. Execute-as numa thread de trabalho, serializadas para cada instância.
 
-## Licenças de terceiros
+## Dependências
 
-- [nlohmann/json](https://github.com/nlohmann/json) — MIT
+Apenas a API do Windows (`WinHTTP`, `bcrypt`, `advapi32`). O JSON é próprio do projeto — não há bibliotecas de terceiros nem licenças externas.

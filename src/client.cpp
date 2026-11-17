@@ -1,12 +1,293 @@
 #include "client.h"
-#include "json.hpp"
+
 #include <windows.h>
 #include <winhttp.h>
 #include <bcrypt.h>
+
+#include <cctype>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <initializer_list>
 #include <stdexcept>
+#include <string>
+#include <utility>
+#include <vector>
 
 namespace {
-using Json = nlohmann::json;
+
+// JSON mínimo, escrito neste projeto (sem dependências nem licenças externas).
+// Cobre apenas o subconjunto usado pelo cliente: objetos com valores de texto,
+// número, booleano e objetos aninhados. O servidor não devolve arrays.
+class Json {
+public:
+    enum class Kind { Null, Boolean, Number, String, Object };
+
+    static Json Fields(std::initializer_list<std::pair<const char*, std::string>> fields) {
+        Json json;
+        json.kind_ = Kind::Object;
+        for (const auto& field : fields) {
+            Json member;
+            member.kind_ = Kind::String;
+            member.name_ = field.first;
+            member.text_ = field.second;
+            json.members_.push_back(std::move(member));
+        }
+        return json;
+    }
+
+    bool IsObject() const { return kind_ == Kind::Object; }
+
+    std::string Dump() const {
+        switch (kind_) {
+            case Kind::Boolean: return boolean_ ? "true" : "false";
+            case Kind::Number: return std::to_string(number_);
+            case Kind::String: return Quote(text_);
+            case Kind::Object: {
+                std::string out = "{";
+                for (std::size_t index = 0; index < members_.size(); ++index) {
+                    if (index) out += ',';
+                    out += Quote(members_[index].name_) + ":" + members_[index].Dump();
+                }
+                return out + "}";
+            }
+            default: return "null";
+        }
+    }
+
+    const Json* Child(const std::string& name) const {
+        for (const Json& member : members_) {
+            if (member.name_ == name) return &member;
+        }
+        return nullptr;
+    }
+
+    std::string Text(const std::string& name, const std::string& fallback) const {
+        const Json* member = Child(name);
+        return member && member->kind_ == Kind::String ? member->text_ : fallback;
+    }
+
+    bool Boolean(const std::string& name, bool fallback) const {
+        const Json* member = Child(name);
+        return member && member->kind_ == Kind::Boolean ? member->boolean_ : fallback;
+    }
+
+    long long Number(const std::string& name, long long fallback) const {
+        const Json* member = Child(name);
+        return member && member->kind_ == Kind::Number
+            ? static_cast<long long>(member->number_) : fallback;
+    }
+
+    // Devolve o valor analisado e define "valid" como falso se o texto não for
+    // um documento JSON completo e bem formado.
+    static Json Parse(const std::string& input, bool& valid) {
+        std::size_t position = 0;
+        bool failed = false;
+        Json result = Read(input, position, failed);
+        SkipSpace(input, position);
+        valid = !failed && position == input.size();
+        return valid ? result : Json();
+    }
+
+private:
+    Kind kind_ = Kind::Null;
+    bool boolean_ = false;
+    double number_ = 0;
+    std::string name_;
+    std::string text_;
+    std::vector<Json> members_;
+
+    static std::string Quote(const std::string& value) {
+        std::string out = "\"";
+        for (const char raw : value) {
+            const unsigned char character = static_cast<unsigned char>(raw);
+            switch (character) {
+                case '"': out += "\\\""; break;
+                case '\\': out += "\\\\"; break;
+                case '\b': out += "\\b"; break;
+                case '\f': out += "\\f"; break;
+                case '\n': out += "\\n"; break;
+                case '\r': out += "\\r"; break;
+                case '\t': out += "\\t"; break;
+                default:
+                    if (character < 0x20) {
+                        char escape[8] = {};
+                        std::snprintf(escape, sizeof(escape), "\\u%04x", character);
+                        out += escape;
+                    } else {
+                        out += raw;
+                    }
+            }
+        }
+        return out + "\"";
+    }
+
+    static void SkipSpace(const std::string& text, std::size_t& position) {
+        while (position < text.size() && (text[position] == ' ' || text[position] == '\t' ||
+               text[position] == '\n' || text[position] == '\r')) {
+            ++position;
+        }
+    }
+
+    static bool Word(const std::string& text, std::size_t& position, const char* literal) {
+        const std::size_t length = std::strlen(literal);
+        if (text.compare(position, length, literal) != 0) return false;
+        position += length;
+        return true;
+    }
+
+    static void AppendUtf8(std::string& out, unsigned code) {
+        if (code < 0x80) {
+            out += static_cast<char>(code);
+        } else if (code < 0x800) {
+            out += static_cast<char>(0xC0 | (code >> 6));
+            out += static_cast<char>(0x80 | (code & 0x3F));
+        } else if (code < 0x10000) {
+            out += static_cast<char>(0xE0 | (code >> 12));
+            out += static_cast<char>(0x80 | ((code >> 6) & 0x3F));
+            out += static_cast<char>(0x80 | (code & 0x3F));
+        } else {
+            out += static_cast<char>(0xF0 | (code >> 18));
+            out += static_cast<char>(0x80 | ((code >> 12) & 0x3F));
+            out += static_cast<char>(0x80 | ((code >> 6) & 0x3F));
+            out += static_cast<char>(0x80 | (code & 0x3F));
+        }
+    }
+
+    static unsigned Hex4(const std::string& text, std::size_t& position, bool& failed) {
+        if (position + 4 > text.size()) { failed = true; return 0; }
+        unsigned code = 0;
+        for (int index = 0; index < 4; ++index) {
+            const char digit = text[position++];
+            code <<= 4;
+            if (digit >= '0' && digit <= '9') code |= digit - '0';
+            else if (digit >= 'a' && digit <= 'f') code |= digit - 'a' + 10;
+            else if (digit >= 'A' && digit <= 'F') code |= digit - 'A' + 10;
+            else { failed = true; return 0; }
+        }
+        return code;
+    }
+
+    static std::string ReadString(const std::string& text, std::size_t& position, bool& failed) {
+        if (position >= text.size() || text[position] != '"') { failed = true; return {}; }
+        ++position;
+        std::string out;
+        while (position < text.size()) {
+            const char character = text[position++];
+            if (character == '"') return out;
+            if (character != '\\') { out += character; continue; }
+            if (position >= text.size()) break;
+            switch (text[position++]) {
+                case '"': out += '"'; break;
+                case '\\': out += '\\'; break;
+                case '/': out += '/'; break;
+                case 'b': out += '\b'; break;
+                case 'f': out += '\f'; break;
+                case 'n': out += '\n'; break;
+                case 'r': out += '\r'; break;
+                case 't': out += '\t'; break;
+                case 'u': {
+                    unsigned code = Hex4(text, position, failed);
+                    if (failed) return {};
+                    if (code >= 0xD800 && code <= 0xDBFF && position + 2 <= text.size() &&
+                        text[position] == '\\' && text[position + 1] == 'u') {
+                        position += 2;
+                        const unsigned low = Hex4(text, position, failed);
+                        if (failed) return {};
+                        code = 0x10000 + ((code - 0xD800) << 10) + (low - 0xDC00);
+                    }
+                    AppendUtf8(out, code);
+                    break;
+                }
+                default: failed = true; return {};
+            }
+        }
+        failed = true;
+        return {};
+    }
+
+    static Json ReadNumber(const std::string& text, std::size_t& position, bool& failed) {
+        const std::size_t start = position;
+        if (position < text.size() && (text[position] == '-' || text[position] == '+')) ++position;
+        while (position < text.size() && std::isdigit(static_cast<unsigned char>(text[position]))) ++position;
+        if (position < text.size() && text[position] == '.') {
+            ++position;
+            while (position < text.size() && std::isdigit(static_cast<unsigned char>(text[position]))) ++position;
+        }
+        if (position < text.size() && (text[position] == 'e' || text[position] == 'E')) {
+            ++position;
+            if (position < text.size() && (text[position] == '-' || text[position] == '+')) ++position;
+            while (position < text.size() && std::isdigit(static_cast<unsigned char>(text[position]))) ++position;
+        }
+        if (position == start) { failed = true; return Json(); }
+        Json json;
+        json.kind_ = Kind::Number;
+        json.number_ = std::strtod(text.substr(start, position - start).c_str(), nullptr);
+        return json;
+    }
+
+    static Json ReadObject(const std::string& text, std::size_t& position, bool& failed) {
+        Json json;
+        json.kind_ = Kind::Object;
+        ++position; // consome '{'
+        SkipSpace(text, position);
+        if (position < text.size() && text[position] == '}') { ++position; return json; }
+        for (;;) {
+            SkipSpace(text, position);
+            std::string name = ReadString(text, position, failed);
+            if (failed) return Json();
+            SkipSpace(text, position);
+            if (position >= text.size() || text[position] != ':') { failed = true; return Json(); }
+            ++position;
+            Json value = Read(text, position, failed);
+            if (failed) return Json();
+            value.name_ = std::move(name);
+            json.members_.push_back(std::move(value));
+            SkipSpace(text, position);
+            if (position >= text.size()) { failed = true; return Json(); }
+            if (text[position] == ',') { ++position; continue; }
+            if (text[position] == '}') { ++position; return json; }
+            failed = true;
+            return Json();
+        }
+    }
+
+    static Json Read(const std::string& text, std::size_t& position, bool& failed) {
+        if (failed) return Json();
+        SkipSpace(text, position);
+        if (position >= text.size()) { failed = true; return Json(); }
+        switch (text[position]) {
+            case '{': return ReadObject(text, position, failed);
+            case '"':
+            {
+                Json json;
+                json.kind_ = Kind::String;
+                json.text_ = ReadString(text, position, failed);
+                return json;
+            }
+            case 't':
+                if (!Word(text, position, "true")) { failed = true; return Json(); }
+                {
+                    Json json;
+                    json.kind_ = Kind::Boolean;
+                    json.boolean_ = true;
+                    return json;
+                }
+            case 'f':
+                if (!Word(text, position, "false")) { failed = true; return Json(); }
+                {
+                    Json json;
+                    json.kind_ = Kind::Boolean;
+                    json.boolean_ = false;
+                    return json;
+                }
+            case 'n':
+                if (!Word(text, position, "null")) { failed = true; return Json(); }
+                return Json();
+            default: return ReadNumber(text, position, failed);
+        }
+    }
+};
 
 struct InternetHandle {
     HINTERNET value;
@@ -135,30 +416,33 @@ std::string Client::Request(const std::wstring& endpoint, const std::string& bod
         if (response.size() + received > 65536) throw std::runtime_error("Resposta muito grande.");
         response.append(buffer, received);
     }
-    const Json result = Json::parse(response, nullptr, false);
-    if (!result.is_object()) throw std::runtime_error("Resposta inválida do servidor.");
-    if (status != 200 || !result.value("success", false)) {
-        throw std::runtime_error(result.value("message", std::string("Acesso recusado pelo servidor.")));
+    bool valid = false;
+    const Json result = Json::Parse(response, valid);
+    if (!valid || !result.IsObject()) throw std::runtime_error("Resposta inválida do servidor.");
+    if (status != 200 || !result.Boolean("success", false)) {
+        throw std::runtime_error(result.Text("message", "Acesso recusado pelo servidor."));
     }
     return response;
 }
 
 void Client::Register(const std::string& username, const std::string& email,
                       const std::string& password, const std::string& license) {
-    Request(L"register", Json{{"appId", appId_}, {"device", device_}, {"username", username},
-        {"email", email}, {"password", password}, {"license", license}}.dump());
+    Request(L"register", Json::Fields({{"appId", appId_}, {"device", device_}, {"username", username},
+        {"email", email}, {"password", password}, {"license", license}}).Dump());
 }
 
 Profile Client::Authorize(const std::wstring& endpoint, const std::string& body) {
     try {
-        const Json result = Json::parse(Request(endpoint, body));
-        const auto& profile = result.at("profile");
+        bool valid = false;
+        const Json result = Json::Parse(Request(endpoint, body), valid);
+        const Json* profile = valid ? result.Child("profile") : nullptr;
+        if (!profile) throw std::runtime_error("Resposta inválida do servidor.");
         Profile parsed;
-        parsed.username = profile.at("username").get<std::string>();
-        parsed.activatedAt = profile.at("activatedAt").get<std::string>();
-        parsed.expiresAt = profile.at("expiresAt").get<std::string>();
-        parsed.remainingSeconds = profile.at("remainingSeconds").get<long long>();
-        token_ = result.at("token").get<std::string>();
+        parsed.username = profile->Text("username", "");
+        parsed.activatedAt = profile->Text("activatedAt", "");
+        parsed.expiresAt = profile->Text("expiresAt", "");
+        parsed.remainingSeconds = profile->Number("remainingSeconds", 0);
+        token_ = result.Text("token", "");
         return parsed;
     } catch (...) {
         Logout();
@@ -168,8 +452,8 @@ Profile Client::Authorize(const std::wstring& endpoint, const std::string& body)
 
 Profile Client::Login(const std::string& username, const std::string& password) {
     Logout();
-    return Authorize(L"login", Json{{"appId", appId_}, {"device", device_},
-        {"username", username}, {"password", password}}.dump());
+    return Authorize(L"login", Json::Fields({{"appId", appId_}, {"device", device_},
+        {"username", username}, {"password", password}}).Dump());
 }
 
 Profile Client::Refresh() {

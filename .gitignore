@@ -1,6 +1,7 @@
 # Saída de build
 /bin/
 /obj/
+/config/config.local.h
 
 # Visual Studio
 /.vs/
