@@ -2,7 +2,6 @@
 #include "../config/config.h"
 
 #include <windows.h>
-#include <bcrypt.h>
 #include <conio.h>
 
 #include <cctype>
@@ -43,32 +42,6 @@ std::string Lower(std::string value) {
         character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
     }
     return value;
-}
-
-// Credencial do cliente desktop: HMAC-SHA256(SecretKey, "secauth:desktop:v1:" + AppId).
-std::string Credential(const std::string& appId, const std::string& secret) {
-    BCRYPT_ALG_HANDLE algorithm = nullptr;
-    if (BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_SHA256_ALGORITHM, nullptr,
-                                    BCRYPT_ALG_HANDLE_HMAC_FLAG) < 0) {
-        throw std::runtime_error("HMAC-SHA256 indisponível.");
-    }
-    const std::string message = "secauth:desktop:v1:" + appId;
-    unsigned char digest[32] = {};
-    const auto status = BCryptHash(algorithm,
-        reinterpret_cast<PUCHAR>(const_cast<char*>(secret.data())), static_cast<ULONG>(secret.size()),
-        reinterpret_cast<PUCHAR>(const_cast<char*>(message.data())), static_cast<ULONG>(message.size()),
-        digest, sizeof(digest));
-    BCryptCloseAlgorithmProvider(algorithm, 0);
-    if (status < 0) throw std::runtime_error("Falha ao gerar a credencial do cliente.");
-
-    const char hex[] = "0123456789abcdef";
-    std::string result;
-    result.reserve(sizeof(digest) * 2);
-    for (const unsigned char byte : digest) {
-        result += hex[byte >> 4];
-        result += hex[byte & 15];
-    }
-    return result;
 }
 
 std::string Trim(std::string value) {
@@ -147,7 +120,6 @@ void Menu() {
 }
 
 void Run(SecAuth::Client& client) {
-    bool loggedIn = false;
     for (;;) {
         Clear();
         Menu();
@@ -183,24 +155,25 @@ void Run(SecAuth::Client& client) {
                 } else {
                     Clear();
                     const SecAuth::Profile profile = client.Login(username, password);
-                    loggedIn = true;
                     Show(profile);
                 }
             } else if (option == "3") {
-                if (!loggedIn) {
+                if (!client.IsLoggedIn()) {
                     Fail("Inicie sessão primeiro.");
                 } else {
                     Show(client.Refresh());
                 }
             } else if (option == "4") {
-                client.Logout();
-                loggedIn = false;
-                std::cout << kGood << "\n  Sessão terminada.\n" << kReset;
+                const bool serverConfirmed = client.Logout();
+                if (serverConfirmed) {
+                    std::cout << kGood << "\n  Sessão revogada no servidor.\n" << kReset;
+                } else {
+                    std::cout << kBad << "\n  Sessão local removida; servidor não confirmou o logout.\n" << kReset;
+                }
             } else {
                 Fail("Opção inválida.");
             }
         } catch (const std::exception& error) {
-            loggedIn = false;
             Fail(error.what());
         }
 
@@ -217,8 +190,7 @@ int main() {
 
     try {
         const std::string appId = Lower(ClientSettings::AppId);
-        SecAuth::Client client(Wide(ClientSettings::Server), appId,
-                               Credential(appId, ClientSettings::SecretKey));
+        SecAuth::Client client(Wide(ClientSettings::Server), appId);
         Run(client);
     } catch (const std::exception& error) {
         Fail(error.what());

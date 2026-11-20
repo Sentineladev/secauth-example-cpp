@@ -5,6 +5,10 @@
 #include <bcrypt.h>
 
 #include <cctype>
+#include <cerrno>
+#include <chrono>
+#include <cmath>
+#include <mutex>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -16,9 +20,6 @@
 
 namespace {
 
-// JSON mínimo, escrito neste projeto (sem dependências nem licenças externas).
-// Cobre apenas o subconjunto usado pelo cliente: objetos com valores de texto,
-// número, booleano e objetos aninhados. O servidor não devolve arrays.
 class Json {
 public:
     enum class Kind { Null, Boolean, Number, String, Object };
@@ -78,8 +79,6 @@ public:
             ? static_cast<long long>(member->number_) : fallback;
     }
 
-    // Devolve o valor analisado e define "valid" como falso se o texto não for
-    // um documento JSON completo e bem formado.
     static Json Parse(const std::string& input, bool& valid) {
         std::size_t position = 0;
         bool failed = false;
@@ -175,6 +174,7 @@ private:
         while (position < text.size()) {
             const char character = text[position++];
             if (character == '"') return out;
+            if (static_cast<unsigned char>(character) < 0x20) { failed = true; return {}; }
             if (character != '\\') { out += character; continue; }
             if (position >= text.size()) break;
             switch (text[position++]) {
@@ -189,12 +189,16 @@ private:
                 case 'u': {
                     unsigned code = Hex4(text, position, failed);
                     if (failed) return {};
-                    if (code >= 0xD800 && code <= 0xDBFF && position + 2 <= text.size() &&
-                        text[position] == '\\' && text[position + 1] == 'u') {
+                    if (code >= 0xD800 && code <= 0xDBFF) {
+                        if (position + 2 > text.size() || text[position] != '\\' ||
+                            text[position + 1] != 'u') { failed = true; return {}; }
                         position += 2;
                         const unsigned low = Hex4(text, position, failed);
-                        if (failed) return {};
+                        if (failed || low < 0xDC00 || low > 0xDFFF) { failed = true; return {}; }
                         code = 0x10000 + ((code - 0xD800) << 10) + (low - 0xDC00);
+                    } else if (code >= 0xDC00 && code <= 0xDFFF) {
+                        failed = true;
+                        return {};
                     }
                     AppendUtf8(out, code);
                     break;
@@ -208,21 +212,41 @@ private:
 
     static Json ReadNumber(const std::string& text, std::size_t& position, bool& failed) {
         const std::size_t start = position;
-        if (position < text.size() && (text[position] == '-' || text[position] == '+')) ++position;
-        while (position < text.size() && std::isdigit(static_cast<unsigned char>(text[position]))) ++position;
+        if (position < text.size() && text[position] == '-') ++position;
+        if (position >= text.size()) { failed = true; return Json(); }
+        if (text[position] == '0') {
+            ++position;
+            if (position < text.size() && std::isdigit(static_cast<unsigned char>(text[position]))) {
+                failed = true;
+                return Json();
+            }
+        } else if (text[position] >= '1' && text[position] <= '9') {
+            while (position < text.size() && std::isdigit(static_cast<unsigned char>(text[position]))) ++position;
+        } else {
+            failed = true;
+            return Json();
+        }
         if (position < text.size() && text[position] == '.') {
             ++position;
+            const std::size_t decimals = position;
             while (position < text.size() && std::isdigit(static_cast<unsigned char>(text[position]))) ++position;
+            if (position == decimals) { failed = true; return Json(); }
         }
         if (position < text.size() && (text[position] == 'e' || text[position] == 'E')) {
             ++position;
             if (position < text.size() && (text[position] == '-' || text[position] == '+')) ++position;
+            const std::size_t exponent = position;
             while (position < text.size() && std::isdigit(static_cast<unsigned char>(text[position]))) ++position;
+            if (position == exponent) { failed = true; return Json(); }
         }
-        if (position == start) { failed = true; return Json(); }
         Json json;
         json.kind_ = Kind::Number;
+        errno = 0;
         json.number_ = std::strtod(text.substr(start, position - start).c_str(), nullptr);
+        if (errno == ERANGE || !std::isfinite(json.number_)) {
+            failed = true;
+            return Json();
+        }
         return json;
     }
 
@@ -241,6 +265,9 @@ private:
             ++position;
             Json value = Read(text, position, failed);
             if (failed) return Json();
+            for (const Json& member : json.members_) {
+                if (member.name_ == name) { failed = true; return Json(); }
+            }
             value.name_ = std::move(name);
             json.members_.push_back(std::move(value));
             SkipSpace(text, position);
@@ -341,12 +368,19 @@ std::string DeviceId(const std::string& appId) {
 }
 
 namespace SecAuth {
-Client::Client(const std::wstring& url, const std::string& appId, const std::string& desktopKey)
-    : appId_(appId), desktopKey_(desktopKey) {
-    if (desktopKey_.size() != 64 || desktopKey_.find_first_not_of("0123456789abcdef") != std::string::npos) {
-        throw std::runtime_error("Chave do cliente C++ inválida.");
-    }
-    if (appId_.size() != 24 || appId_.find_first_not_of("0123456789abcdefABCDEF") != std::string::npos) {
+namespace {
+class HttpError : public std::runtime_error {
+public:
+    HttpError(DWORD code, const std::string& message)
+        : std::runtime_error(message), status(code) {}
+    DWORD status;
+};
+}
+
+Client::Client(const std::wstring& url, const std::string& appId)
+    : appId_(appId) {
+    if (appId_.size() != 24 ||
+        appId_.find_first_not_of("0123456789abcdefABCDEF") != std::string::npos) {
         throw std::runtime_error("App ID inválido.");
     }
 
@@ -369,20 +403,39 @@ Client::Client(const std::wstring& url, const std::string& appId, const std::str
     device_ = DeviceId(appId_);
 }
 
+Client::~Client() {
+    StopAutoRefresh();
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    EraseToken();
+}
+
+void Client::EraseToken() {
+    if (!token_.empty()) SecureZeroMemory(&token_[0], token_.size());
+    token_.clear();
+}
+
+bool Client::IsLoggedIn() const {
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    return !token_.empty();
+}
+
 std::string Client::Request(const std::wstring& endpoint, const std::string& body) const {
-    InternetHandle session(WinHttpOpen(L"SecAuth/1.0", WINHTTP_ACCESS_TYPE_NO_PROXY,
+    InternetHandle session(WinHttpOpen(L"SecAuth/2.0", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
         WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0));
-    if (!WinHttpSetTimeouts(session.value, 4000, 4000, 5000, 5000)) {
+    if (!WinHttpSetTimeouts(session.value, 4000, 4000, 8000, 8000)) {
         throw std::runtime_error("Falha ao configurar os tempos de conexão.");
     }
     if (tls_) {
         DWORD protocols = WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2;
+#ifdef WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_3
+        protocols |= WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_3;
+#endif
         if (!WinHttpSetOption(session.value, WINHTTP_OPTION_SECURE_PROTOCOLS, &protocols, sizeof(protocols))) {
-            throw std::runtime_error("TLS 1.2 indisponível.");
+            throw std::runtime_error("Não foi possível configurar TLS seguro.");
         }
     }
     InternetHandle connection(WinHttpConnect(session.value, host_.c_str(), port_, 0));
-    const auto path = basePath_ + L"/api/desktop/" + endpoint;
+    const auto path = basePath_ + L"/api/desktop/v2/" + endpoint;
     InternetHandle request(WinHttpOpenRequest(connection.value, L"POST", path.c_str(),
         nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, tls_ ? WINHTTP_FLAG_SECURE : 0));
 
@@ -390,19 +443,21 @@ std::string Client::Request(const std::wstring& endpoint, const std::string& bod
     if (!WinHttpSetOption(request.value, WINHTTP_OPTION_REDIRECT_POLICY, &redirect, sizeof(redirect))) {
         throw std::runtime_error("Falha ao configurar a conexão.");
     }
-    std::wstring headers = L"Content-Type: application/json\r\n";
-    headers += L"X-Desktop-Key: " + Wide(desktopKey_) + L"\r\n";
-    if (endpoint == L"session") headers += L"Authorization: Bearer " + Wide(token_) + L"\r\n";
+    std::wstring headers = L"Content-Type: application/json\r\nAccept: application/json\r\n";
+    if (endpoint == L"session" || endpoint == L"logout") {
+        if (token_.empty()) throw std::runtime_error("Faça login para continuar.");
+        headers += L"Authorization: Bearer " + Wide(token_) + L"\r\n";
+    }
     const DWORD length = static_cast<DWORD>(body.size());
     if (!WinHttpSendRequest(request.value, headers.c_str(), static_cast<DWORD>(headers.size()),
                             const_cast<char*>(body.data()), length, length, 0) ||
         !WinHttpReceiveResponse(request.value, nullptr)) {
-        throw std::runtime_error("Falha na conexão com o servidor.");
+        throw std::runtime_error("Falha de comunicação com o servidor.");
     }
 
     DWORD status = 0, statusSize = sizeof(status);
     if (!WinHttpQueryHeaders(request.value, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
-                             WINHTTP_HEADER_NAME_BY_INDEX, &status, &statusSize, WINHTTP_NO_HEADER_INDEX)) {
+                            WINHTTP_HEADER_NAME_BY_INDEX, &status, &statusSize, WINHTTP_NO_HEADER_INDEX)) {
         throw std::runtime_error("Resposta HTTP inválida.");
     }
     std::string response;
@@ -418,51 +473,110 @@ std::string Client::Request(const std::wstring& endpoint, const std::string& bod
     }
     bool valid = false;
     const Json result = Json::Parse(response, valid);
-    if (!valid || !result.IsObject()) throw std::runtime_error("Resposta inválida do servidor.");
+    if (!valid || !result.IsObject()) throw std::runtime_error("Resposta JSON inválida do servidor.");
     if (status != 200 || !result.Boolean("success", false)) {
-        throw std::runtime_error(result.Text("message", "Acesso recusado pelo servidor."));
+        throw HttpError(status, result.Text("message", "Acesso recusado pelo servidor."));
     }
     return response;
 }
 
 void Client::Register(const std::string& username, const std::string& email,
                       const std::string& password, const std::string& license) {
+    std::lock_guard<std::mutex> lock(stateMutex_);
     Request(L"register", Json::Fields({{"appId", appId_}, {"device", device_}, {"username", username},
         {"email", email}, {"password", password}, {"license", license}}).Dump());
 }
 
 Profile Client::Authorize(const std::wstring& endpoint, const std::string& body) {
-    try {
-        bool valid = false;
-        const Json result = Json::Parse(Request(endpoint, body), valid);
-        const Json* profile = valid ? result.Child("profile") : nullptr;
-        if (!profile) throw std::runtime_error("Resposta inválida do servidor.");
-        Profile parsed;
-        parsed.username = profile->Text("username", "");
-        parsed.activatedAt = profile->Text("activatedAt", "");
-        parsed.expiresAt = profile->Text("expiresAt", "");
-        parsed.remainingSeconds = profile->Number("remainingSeconds", 0);
-        token_ = result.Text("token", "");
-        return parsed;
-    } catch (...) {
-        Logout();
-        throw;
+    bool valid = false;
+    const Json result = Json::Parse(Request(endpoint, body), valid);
+    const Json* profile = valid ? result.Child("profile") : nullptr;
+    const std::string newToken = result.Text("token", "");
+    if (!profile || !profile->IsObject() || newToken.empty()) {
+        throw std::runtime_error("Resposta de autenticação inválida.");
     }
+    Profile parsed;
+    parsed.username = profile->Text("username", "");
+    parsed.activatedAt = profile->Text("activatedAt", "");
+    parsed.expiresAt = profile->Text("expiresAt", "");
+    parsed.remainingSeconds = profile->Number("remainingSeconds", -1);
+    if (parsed.username.empty() || parsed.expiresAt.empty() || parsed.remainingSeconds <= 0) {
+        throw std::runtime_error("Perfil inválido recebido do servidor.");
+    }
+    EraseToken();
+    token_ = newToken;
+    return parsed;
 }
 
 Profile Client::Login(const std::string& username, const std::string& password) {
     Logout();
-    return Authorize(L"login", Json::Fields({{"appId", appId_}, {"device", device_},
-        {"username", username}, {"password", password}}).Dump());
+    Profile profile;
+    {
+        std::lock_guard<std::mutex> lock(stateMutex_);
+        profile = Authorize(L"login", Json::Fields({{"appId", appId_}, {"device", device_},
+            {"username", username}, {"password", password}}).Dump());
+    }
+    StartAutoRefresh();
+    return profile;
 }
 
 Profile Client::Refresh() {
+    std::lock_guard<std::mutex> lock(stateMutex_);
     if (token_.empty()) throw std::runtime_error("Faça login para continuar.");
-    return Authorize(L"session", "{}");
+    try {
+        return Authorize(L"session", "{}");
+    } catch (const HttpError& error) {
+        if (error.status == 401 || error.status == 403) EraseToken();
+        throw;
+    }
 }
 
-void Client::Logout() {
-    if (!token_.empty()) SecureZeroMemory(&token_[0], token_.size());
-    token_.clear();
+void Client::StartAutoRefresh() {
+    StopAutoRefresh();
+    {
+        std::lock_guard<std::mutex> lock(workerMutex_);
+        workerStop_ = false;
+    }
+    autoRefreshThread_ = std::thread([this]() {
+        std::chrono::seconds interval(5 * 60);
+        for (;;) {
+            std::unique_lock<std::mutex> lock(workerMutex_);
+            if (workerCv_.wait_for(lock, interval, [this]() { return workerStop_; })) return;
+            lock.unlock();
+            try {
+                Refresh();
+                interval = std::chrono::seconds(5 * 60);
+            } catch (const HttpError& error) {
+                if (error.status == 401 || error.status == 403) return;
+                interval = std::chrono::seconds(30);
+            } catch (...) {
+                interval = std::chrono::seconds(30);
+            }
+        }
+    });
+}
+
+void Client::StopAutoRefresh() {
+    {
+        std::lock_guard<std::mutex> lock(workerMutex_);
+        workerStop_ = true;
+    }
+    workerCv_.notify_all();
+    if (autoRefreshThread_.joinable()) autoRefreshThread_.join();
+}
+
+bool Client::Logout() {
+    StopAutoRefresh();
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    bool revoked = true;
+    if (!token_.empty()) {
+        try {
+            Request(L"logout", "{}");
+        } catch (...) {
+            revoked = false;
+        }
+    }
+    EraseToken();
+    return revoked;
 }
 }
