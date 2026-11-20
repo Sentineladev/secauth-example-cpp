@@ -15,7 +15,7 @@ struct Profile {
 
 class Client {
 public:
-    Client(const std::wstring& server, const std::string& appId, const std::string& desktopKey, const std::string& version);
+    Client(const std::wstring& server, const std::string& appId, const std::string& desktopKey, const std::string& version, const std::string& appName);
     ~Client();
     Client(const Client&) = delete;
     Client& operator=(const Client&) = delete;
@@ -41,6 +41,7 @@ private:
     std::string appId_;
     std::string desktopKey_;
     std::string version_;
+    std::string appNameFingerprint_;
     std::string device_;
     std::string token_;
     std::chrono::steady_clock::time_point verifiedAt_{};

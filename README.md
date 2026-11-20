@@ -54,3 +54,9 @@ A configuração contém `Server`, `AppId`, `AppName` e `Version`. O cliente env
 `AppName` é exibido no menu. Ele não dá acesso à API nem é usado como segredo; `AppId` identifica o software. `SECAUTH_DESKTOP_KEY` é a credencial desktop revogável derivada no servidor e ofuscada por `skCrypt` no build.
 
 Não confunda `Version` com uma barreira criptográfica: um cliente modificado pode falsificar o cabeçalho de versão. Use a rotação da credencial desktop, verificações contínuas de licença e controles do backend como mecanismos reais de autorização.
+
+## Validação do nome cadastrado
+
+O campo `AppName` em `config/config.h` deve coincidir **exatamente** com o nome salvo em **Configurações** da aplicação no painel. O cliente calcula SHA-256 do nome em UTF-8 e envia somente a impressão digital em `X-Client-App-Fingerprint`. Quando o nome no painel muda, clientes C++ compilados com o nome anterior deixam de autenticar ou renovar a sessão e recebem uma mensagem indicando que precisam ser atualizados. A configuração do projeto já utiliza `/utf-8` para permitir nomes acentuados.
+
+Os campos `AppName` e `Version` são metadados verificáveis, não segredos criptográficos; um executável modificado pode falsificá-los. A autorização deve continuar dependente da credencial desktop rotativa, login, licença e validações no servidor.

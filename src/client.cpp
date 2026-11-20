@@ -337,6 +337,23 @@ std::wstring Wide(const std::string& input) {
     return output;
 }
 
+std::string Sha256Hex(const std::string& input) {
+    BCRYPT_ALG_HANDLE algorithm = nullptr;
+    if (BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_SHA256_ALGORITHM, nullptr, 0) < 0) {
+        throw std::runtime_error("SHA-256 indisponível.");
+    }
+    unsigned char digest[32] = {};
+    const auto result = BCryptHash(algorithm, nullptr, 0,
+        reinterpret_cast<PUCHAR>(const_cast<char*>(input.data())),
+        static_cast<ULONG>(input.size()), digest, sizeof(digest));
+    BCryptCloseAlgorithmProvider(algorithm, 0);
+    if (result < 0) throw std::runtime_error("Falha ao verificar o nome do aplicativo.");
+    const char hex[] = "0123456789abcdef";
+    std::string out;
+    out.reserve(64);
+    for (unsigned char byte : digest) { out += hex[byte >> 4]; out += hex[byte & 15]; }
+    return out;
+}
 std::string DeviceId(const std::string& appId) {
     wchar_t guid[64] = {};
     DWORD size = sizeof(guid);
@@ -378,8 +395,12 @@ public:
 }
 
 Client::Client(const std::wstring& url, const std::string& appId, const std::string& desktopKey,
-               const std::string& version)
+               const std::string& version, const std::string& appName)
     : appId_(appId), desktopKey_(desktopKey), version_(version) {
+    if (appName.empty() || appName.size() > 400) {
+        throw std::runtime_error("Nome do aplicativo inválido.");
+    }
+    appNameFingerprint_ = Sha256Hex(appName);
     if (version_.empty() || version_.size() > 32 ||
         version_.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-") != std::string::npos ||
         !std::isalnum(static_cast<unsigned char>(version_.front()))) {
@@ -457,6 +478,7 @@ std::string Client::Request(const std::wstring& endpoint, const std::string& bod
     std::wstring headers = L"Content-Type: application/json\r\nAccept: application/json\r\n";
     headers += L"X-Desktop-Key: " + Wide(desktopKey_) + L"\r\n";
     headers += L"X-Client-Version: " + Wide(version_) + L"\r\n";
+    headers += L"X-Client-App-Fingerprint: " + Wide(appNameFingerprint_) + L"\r\n";
     if (endpoint == L"session" || endpoint == L"logout") {
         if (token_.empty()) throw std::runtime_error("Faça login para continuar.");
         headers += L"Authorization: Bearer " + Wide(token_) + L"\r\n";

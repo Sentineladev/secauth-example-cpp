@@ -194,7 +194,8 @@ int main() {
         const std::string appId = Lower(ClientSettings::AppId);
         auto obfuscated = skCrypt(SECAUTH_DESKTOP_KEY);
         std::string desktopKey = obfuscated.decrypt();
-        SecAuth::Client client(Wide(ClientSettings::Server), appId, desktopKey, ClientSettings::Version);
+        SecAuth::Client client(Wide(ClientSettings::Server), appId, desktopKey,
+                               ClientSettings::Version, ClientSettings::AppName);
         SecureZeroMemory(&desktopKey[0], desktopKey.size());
         obfuscated.clear();
         Run(client);
