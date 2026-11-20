@@ -540,7 +540,7 @@ Profile Client::Refresh() {
     try {
         return Authorize(L"session", "{}");
     } catch (const HttpError& error) {
-        if (error.status == 401 || error.status == 403) EraseToken();
+        if (error.status == 401 || error.status == 403 || error.status == 426) EraseToken();
         throw;
     }
 }
@@ -561,7 +561,7 @@ void Client::StartAutoRefresh() {
                 Refresh();
                 interval = std::chrono::seconds(30);
             } catch (const HttpError& error) {
-                if (error.status == 401 || error.status == 403) return;
+                if (error.status == 401 || error.status == 403 || error.status == 426) return;
                 interval = std::chrono::seconds(15);
             } catch (...) {
                 interval = std::chrono::seconds(15);
