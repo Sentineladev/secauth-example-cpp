@@ -32,8 +32,8 @@ inline std::string Version() {
     return result;
 }
 
-inline std::string SecretKey() {
-    auto encrypted = skCrypt("COLE_A_CREDENCIAL_DESKTOP_DE_64_CARACTERES");
+inline std::string ClientKey() {
+    auto encrypted = skCrypt("COLE_SUA_CLIENT_KEY");
     std::string result(encrypted.decrypt());
     encrypted.clear();
     return result;
