@@ -13,11 +13,15 @@ Cliente de demonstração da API desktop v2 com **credencial revogável por rota
 namespace ClientSettings {
 constexpr char Server[] = "https://api.getsecauth.com";
 constexpr char AppId[] = "SEU_APP_ID";
-constexpr char DesktopKey[] = "COLE_A_CREDENCIAL_DESKTOP_DE_64_CARACTERES";
+constexpr char AppName[] = "MeuApp";
+constexpr char Version[] = "1.0.0";
 }
+
+#define SECAUTH_DESKTOP_KEY "COLE_A_CREDENCIAL_DESKTOP_DE_64_CARACTERES"
 ```
 
-4. Abra `SecAuth-Exemplo.sln` e compile **Release | x64**. Só use a credencial de uma aplicação que você administra; não versione valores reais.
+4. Configure `AppName` como o nome exibido no terminal e `Version` para a **mesma versão exigida no painel** (Configurações → Versão exigida do Client C++). Alterar uma versão no painel ou no executável sem atualizar a outra faz o servidor rejeitar login, cadastro e renovação. App Name é apenas identificação visual, não credencial de segurança.
+5. Abra `SecAuth-Exemplo.sln` e compile **Release | x64**. Só use a credencial de uma aplicação que você administra; não versione valores reais.
 
 ## Como a revogação funciona
 
@@ -29,7 +33,7 @@ As quatro opções do exemplo são registrar licença, iniciar sessão, consulta
 
 ## Sobre a obfuscação skCrypt
 
-Este exemplo inclui `include/skStr.h` fornecido pelo proprietário e utiliza `skCrypt` na credencial desktop configurada. A biblioteca ofusca strings com XOR durante a compilação. **Não é criptografia que impeça engenharia reversa:** pessoas que possuem o binário podem recuperar a credencial desktop. Ela também não deve receber a Secret Key mestra. A proteção fundamental é o servidor validar sessão, licença, dispositivo e a credencial vigente em cada operação.
+Este exemplo inclui `include/skStr.h` fornecido pelo proprietário e utiliza `skCrypt` numa macro com literal de string para ofuscar a credencial desktop compilada. A credencial não fica adicionalmente declarada como variável global constexpr em texto simples. A biblioteca ofusca strings com XOR durante a compilação. **Não é criptografia que impeça engenharia reversa:** pessoas que possuem o binário podem recuperar a credencial desktop. Ela também não deve receber a Secret Key mestra. A proteção fundamental é o servidor validar sessão, licença, dispositivo e a credencial vigente em cada operação.
 
 A credencial desktop é reutilizável pelo cliente e deve ser tratada como material sensível. Sua rotação invalida os binários anteriores, mas não torna um software distribuído inviolável.
 
@@ -39,6 +43,14 @@ A credencial desktop é reutilizável pelo cliente e deve ser tratada como mater
 2. No painel, redefina a Secret Key com senha e 2FA.
 3. No cliente já aberto, consulte o estado da sessão ou aguarde a verificação automática; a sessão antiga deverá ser negada.
 4. Tente fazer login novamente com o mesmo executável antigo; deverá falhar.
-5. Revele e copie a **nova credencial desktop**, recompile e teste novo login; deverá funcionar.
+5. Revele e copie a **nova credencial desktop**, recompile com a versão atual exigida no painel e teste novo login; deverá funcionar.
 
 **Compatibilidade:** o backend mantém os endpoints legados `/api/desktop/*`, porém o exemplo atualizado usa `/api/desktop/v2/*`. As alterações no protocolo v2 precisam estar implantadas para esse binário funcionar.
+
+## Gestão da versão
+
+A configuração contém `Server`, `AppId`, `AppName` e `Version`. O cliente envia `X-Client-Version` nas requisições desktop v2; o servidor exige correspondência exata com a versão da aplicação. A versão necessária pode ser alterada no painel após confirmação. Quando o servidor mudar de versão, builds com a versão anterior passam a receber `426` nas verificações da sessão, mesmo que a Secret Key permaneça igual.
+
+`AppName` é exibido no menu. Ele não dá acesso à API nem é usado como segredo; `AppId` identifica o software. `SECAUTH_DESKTOP_KEY` é a credencial desktop revogável derivada no servidor e ofuscada por `skCrypt` no build.
+
+Não confunda `Version` com uma barreira criptográfica: um cliente modificado pode falsificar o cabeçalho de versão. Use a rotação da credencial desktop, verificações contínuas de licença e controles do backend como mecanismos reais de autorização.

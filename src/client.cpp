@@ -377,8 +377,14 @@ public:
 };
 }
 
-Client::Client(const std::wstring& url, const std::string& appId, const std::string& desktopKey)
-    : appId_(appId), desktopKey_(desktopKey) {
+Client::Client(const std::wstring& url, const std::string& appId, const std::string& desktopKey,
+               const std::string& version)
+    : appId_(appId), desktopKey_(desktopKey), version_(version) {
+    if (version_.empty() || version_.size() > 32 ||
+        version_.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-") != std::string::npos ||
+        !std::isalnum(static_cast<unsigned char>(version_.front()))) {
+        throw std::runtime_error("Versão do Client C++ inválida.");
+    }
     if (desktopKey_.size() != 64 || desktopKey_.find_first_not_of("0123456789abcdef") != std::string::npos) {
         throw std::runtime_error("Credencial do Client C++ inválida. Copie a credencial atual no painel após senha e 2FA.");
     }
@@ -450,6 +456,7 @@ std::string Client::Request(const std::wstring& endpoint, const std::string& bod
     }
     std::wstring headers = L"Content-Type: application/json\r\nAccept: application/json\r\n";
     headers += L"X-Desktop-Key: " + Wide(desktopKey_) + L"\r\n";
+    headers += L"X-Client-Version: " + Wide(version_) + L"\r\n";
     if (endpoint == L"session" || endpoint == L"logout") {
         if (token_.empty()) throw std::runtime_error("Faça login para continuar.");
         headers += L"Authorization: Bearer " + Wide(token_) + L"\r\n";

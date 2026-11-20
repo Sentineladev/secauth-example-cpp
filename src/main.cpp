@@ -112,7 +112,8 @@ void Show(const SecAuth::Profile& profile) {
 
 void Menu() {
     std::cout << "\n" << kAccent << kBold << "  SECAUTH" << kReset << kDim
-              << "   Cliente de exemplo (C++)\n" << kReset << "\n"
+              << "   " << ClientSettings::AppName << " v" << ClientSettings::Version
+              << "  ·  Cliente de exemplo (C++)\n" << kReset << "\n"
               << "  " << kAccent << "[1]" << kReset << " Registar licença\n"
               << "  " << kAccent << "[2]" << kReset << " Iniciar sessão\n"
               << "  " << kAccent << "[3]" << kReset << " Estado da sessão\n"
@@ -191,9 +192,9 @@ int main() {
 
     try {
         const std::string appId = Lower(ClientSettings::AppId);
-        auto obfuscated = skCrypt(ClientSettings::DesktopKey);
+        auto obfuscated = skCrypt(SECAUTH_DESKTOP_KEY);
         std::string desktopKey = obfuscated.decrypt();
-        SecAuth::Client client(Wide(ClientSettings::Server), appId, desktopKey);
+        SecAuth::Client client(Wide(ClientSettings::Server), appId, desktopKey, ClientSettings::Version);
         SecureZeroMemory(&desktopKey[0], desktopKey.size());
         obfuscated.clear();
         Run(client);
