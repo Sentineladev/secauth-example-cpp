@@ -200,7 +200,7 @@ int main() {
                 if (!value.empty()) SecureZeroMemory(&value[0], value.size());
             }
         };
-        SensitiveValue credential{ClientSettings::SecretKey()};
+        SensitiveValue credential{ClientSettings::ClientKey()};
         SecAuth::Client client(Wide(server), appId, credential.value, version, appName);
         Run(client);
     } catch (const std::exception& error) {
