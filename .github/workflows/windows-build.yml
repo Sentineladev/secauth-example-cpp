@@ -1,0 +1,16 @@
+name: Validate SecAuth C++ example
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: microsoft/setup-msbuild@v2
+      - name: Build Release x64
+        shell: pwsh
+        run: msbuild SecAuth-Exemplo.sln /m /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143
