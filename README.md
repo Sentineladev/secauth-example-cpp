@@ -60,7 +60,7 @@ As quatro opções do exemplo são registrar licença, iniciar sessão, consulta
 
 ## Sobre a obfuscação skCrypt
 
-Este exemplo inclui `include/skStr.h` e aplica `skCrypt` aos cinco valores de `config/config.h`: `Server`, `AppId`, `AppName`, `Version` e `SecretKey`. Cada função de configuração descriptografa uma cópia temporária, apaga seu buffer e devolve o valor para uso enquanto o programa executa. A Client Key não fica declarada como variável global `constexpr char[]` em texto simples. A biblioteca ofusca strings com XOR durante a compilação. **Não é criptografia que impeça engenharia reversa:** pessoas que possuem o binário podem recuperar a Client Key. Ela também não deve receber a Secret Key mestra. A proteção fundamental é o servidor validar sessão, licença, dispositivo e a credencial vigente em cada operação.
+Este exemplo inclui `include/skStr.h` e aplica `skCrypt` aos cinco valores de `config/config.h`: `Server`, `AppId`, `AppName`, `Version` e `ClientKey`. Cada função de configuração descriptografa uma cópia temporária, apaga seu buffer e devolve o valor para uso enquanto o programa executa. A Client Key não fica declarada como variável global `constexpr char[]` em texto simples. A biblioteca ofusca strings com XOR durante a compilação. **Não é criptografia que impeça engenharia reversa:** pessoas que possuem o binário podem recuperar a Client Key. Ela também não deve receber a Secret Key mestra. A proteção fundamental é o servidor validar sessão, licença, dispositivo e a credencial vigente em cada operação.
 
 A Client Key é reutilizável pelo cliente e deve ser tratada como material sensível. Sua rotação invalida os binários anteriores, mas não torna um software distribuído inviolável.
 
@@ -78,7 +78,7 @@ A Client Key é reutilizável pelo cliente e deve ser tratada como material sens
 
 A configuração contém `Server`, `AppId`, `AppName` e `Version`. O cliente envia `X-Client-Version` nas requisições desktop v2; o servidor exige correspondência exata com a versão da aplicação. A versão necessária pode ser alterada no painel após confirmação. Quando o servidor mudar de versão, builds com a versão anterior passam a receber `426` nas verificações da sessão, mesmo que a Secret Key permaneça igual.
 
-`AppName()` é exibido no menu. Ele não dá acesso à API nem é usado como segredo; `AppId()` identifica o software. `SecretKey()` devolve a Client Key revogável derivada no servidor e ofuscada por `skCrypt` no build.
+`AppName()` é exibido no menu. Ele não dá acesso à API nem é usado como segredo; `AppId()` identifica o software. `ClientKey()` devolve a Client Key revogável derivada no servidor e ofuscada por `skCrypt` no build.
 
 Não confunda `Version` com uma barreira criptográfica: um cliente modificado pode falsificar o cabeçalho de versão. Use a rotação da Client Key, verificações contínuas de licença e controles do backend como mecanismos reais de autorização.
 
@@ -92,7 +92,7 @@ Os campos `AppName` e `Version` são metadados verificáveis, não segredos crip
 
 Todos os cinco valores de configuração estão envolvidos por `skCrypt(...)` no próprio `config/config.h`. As expressões `constexpr char X[] = skCrypt("...").decrypt();` **não são C++ válido**, pois `decrypt()` retorna um ponteiro em tempo de execução, e um array `constexpr` não pode ser inicializado a partir dele. Para manter o mesmo resultado funcional e compilar no Visual Studio, use as funções `ClientSettings::Server()`, `ClientSettings::AppId()`, `ClientSettings::AppName()`, `ClientSettings::Version()` e `ClientSettings::ClientKey()`.
 
-A ofuscação XOR de strings não deve ser interpretada como confidencialidade criptográfica ou defesa suficiente contra engenharia reversa. A Secret Key mestra nunca deve ser incluída no binário: o campo `SecretKey()` recebe **somente a Client Key derivada e rotacionável**, obtida no painel. O uso de `skCrypt` não modifica o protocolo desktop v2, as validações de nome e versão, nem a revogação pela rotação da chave.
+A ofuscação XOR de strings não deve ser interpretada como confidencialidade criptográfica ou defesa suficiente contra engenharia reversa. A Secret Key mestra nunca deve ser incluída no binário: o campo `ClientKey()` recebe **somente a Client Key derivada e rotacionável**, obtida no painel. O uso de `skCrypt` não modifica o protocolo desktop v2, as validações de nome e versão, nem a revogação pela rotação da chave.
 
 ## Compatibilidade entre linguagens
 
