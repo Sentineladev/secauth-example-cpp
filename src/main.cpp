@@ -1,5 +1,6 @@
 #include "client.h"
 #include "../config/config.h"
+#include "../include/skStr.h"
 
 #include <windows.h>
 #include <conio.h>
@@ -190,7 +191,11 @@ int main() {
 
     try {
         const std::string appId = Lower(ClientSettings::AppId);
-        SecAuth::Client client(Wide(ClientSettings::Server), appId);
+        auto obfuscated = skCrypt(ClientSettings::DesktopKey);
+        std::string desktopKey = obfuscated.decrypt();
+        SecAuth::Client client(Wide(ClientSettings::Server), appId, desktopKey);
+        SecureZeroMemory(&desktopKey[0], desktopKey.size());
+        obfuscated.clear();
         Run(client);
     } catch (const std::exception& error) {
         Fail(error.what());

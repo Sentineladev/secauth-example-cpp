@@ -377,8 +377,11 @@ public:
 };
 }
 
-Client::Client(const std::wstring& url, const std::string& appId)
-    : appId_(appId) {
+Client::Client(const std::wstring& url, const std::string& appId, const std::string& desktopKey)
+    : appId_(appId), desktopKey_(desktopKey) {
+    if (desktopKey_.size() != 64 || desktopKey_.find_first_not_of("0123456789abcdef") != std::string::npos) {
+        throw std::runtime_error("Credencial do Client C++ inválida. Copie a credencial atual no painel após senha e 2FA.");
+    }
     if (appId_.size() != 24 ||
         appId_.find_first_not_of("0123456789abcdefABCDEF") != std::string::npos) {
         throw std::runtime_error("App ID inválido.");
@@ -412,11 +415,13 @@ Client::~Client() {
 void Client::EraseToken() {
     if (!token_.empty()) SecureZeroMemory(&token_[0], token_.size());
     token_.clear();
+    verifiedAt_ = std::chrono::steady_clock::time_point{};
 }
 
 bool Client::IsLoggedIn() const {
     std::lock_guard<std::mutex> lock(stateMutex_);
-    return !token_.empty();
+    return !token_.empty() &&
+        (std::chrono::steady_clock::now() - verifiedAt_ <= std::chrono::seconds(90));
 }
 
 std::string Client::Request(const std::wstring& endpoint, const std::string& body) const {
@@ -444,6 +449,7 @@ std::string Client::Request(const std::wstring& endpoint, const std::string& bod
         throw std::runtime_error("Falha ao configurar a conexão.");
     }
     std::wstring headers = L"Content-Type: application/json\r\nAccept: application/json\r\n";
+    headers += L"X-Desktop-Key: " + Wide(desktopKey_) + L"\r\n";
     if (endpoint == L"session" || endpoint == L"logout") {
         if (token_.empty()) throw std::runtime_error("Faça login para continuar.");
         headers += L"Authorization: Bearer " + Wide(token_) + L"\r\n";
@@ -505,6 +511,7 @@ Profile Client::Authorize(const std::wstring& endpoint, const std::string& body)
     }
     EraseToken();
     token_ = newToken;
+    verifiedAt_ = std::chrono::steady_clock::now();
     return parsed;
 }
 
@@ -538,19 +545,19 @@ void Client::StartAutoRefresh() {
         workerStop_ = false;
     }
     autoRefreshThread_ = std::thread([this]() {
-        std::chrono::seconds interval(5 * 60);
+        std::chrono::seconds interval(30);
         for (;;) {
             std::unique_lock<std::mutex> lock(workerMutex_);
             if (workerCv_.wait_for(lock, interval, [this]() { return workerStop_; })) return;
             lock.unlock();
             try {
                 Refresh();
-                interval = std::chrono::seconds(5 * 60);
+                interval = std::chrono::seconds(30);
             } catch (const HttpError& error) {
                 if (error.status == 401 || error.status == 403) return;
-                interval = std::chrono::seconds(30);
+                interval = std::chrono::seconds(15);
             } catch (...) {
-                interval = std::chrono::seconds(30);
+                interval = std::chrono::seconds(15);
             }
         }
     });

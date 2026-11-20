@@ -1,4 +1,5 @@
 #pragma once
+#include <chrono>
 #include <condition_variable>
 #include <mutex>
 #include <string>
@@ -14,7 +15,7 @@ struct Profile {
 
 class Client {
 public:
-    Client(const std::wstring& server, const std::string& appId);
+    Client(const std::wstring& server, const std::string& appId, const std::string& desktopKey);
     ~Client();
     Client(const Client&) = delete;
     Client& operator=(const Client&) = delete;
@@ -38,8 +39,10 @@ private:
     unsigned short port_ = 0;
     bool tls_ = true;
     std::string appId_;
+    std::string desktopKey_;
     std::string device_;
     std::string token_;
+    std::chrono::steady_clock::time_point verifiedAt_{};
     mutable std::mutex stateMutex_;
     std::mutex workerMutex_;
     std::condition_variable workerCv_;
