@@ -10,17 +10,44 @@ Cliente de demonstração da API desktop v2 com **credencial revogável por rota
 
 ```cpp
 #pragma once
-namespace ClientSettings {
-constexpr char Server[] = "https://api.getsecauth.com";
-constexpr char AppId[] = "SEU_APP_ID";
-constexpr char AppName[] = "MeuApp";
-constexpr char Version[] = "1.0.0";
-}
+#include <string>
+#include "../include/skStr.h"
 
-#define SecretKey "COLE_A_CREDENCIAL_DESKTOP_DE_64_CARACTERES"
+namespace ClientSettings {
+    inline std::string Server() {
+        auto encrypted = skCrypt("https://api.getsecauth.com");
+        std::string result(encrypted.decrypt());
+        encrypted.clear();
+        return result;
+    }
+    inline std::string AppId() {
+        auto encrypted = skCrypt("SEU_APP_ID");
+        std::string result(encrypted.decrypt());
+        encrypted.clear();
+        return result;
+    }
+    inline std::string AppName() {
+        auto encrypted = skCrypt("MeuApp");
+        std::string result(encrypted.decrypt());
+        encrypted.clear();
+        return result;
+    }
+    inline std::string Version() {
+        auto encrypted = skCrypt("1.0.0");
+        std::string result(encrypted.decrypt());
+        encrypted.clear();
+        return result;
+    }
+    inline std::string SecretKey() {
+        auto encrypted = skCrypt("COLE_A_CREDENCIAL_DESKTOP_DE_64_CARACTERES");
+        std::string result(encrypted.decrypt());
+        encrypted.clear();
+        return result;
+    }
+}
 ```
 
-4. Configure `AppName` como o nome exibido no terminal e `Version` para a **mesma versão exigida no painel** (Configurações → Versão exigida do Client C++). Alterar uma versão no painel ou no executável sem atualizar a outra faz o servidor rejeitar login, cadastro e renovação. App Name é apenas identificação visual, não credencial de segurança.
+4. Configure `AppName()` como o nome exibido no terminal e `Version()` para a **mesma versão exigida no painel** (Configurações → Versão exigida do Client C++). Alterar uma versão no painel ou no executável sem atualizar a outra faz o servidor rejeitar login, cadastro e renovação. App Name é apenas identificação visual, não credencial de segurança.
 5. Abra `SecAuth-Exemplo.sln` e compile **Release | x64**. Só use a credencial de uma aplicação que você administra; não versione valores reais.
 
 ## Como a revogação funciona
@@ -33,7 +60,7 @@ As quatro opções do exemplo são registrar licença, iniciar sessão, consulta
 
 ## Sobre a obfuscação skCrypt
 
-Este exemplo inclui `include/skStr.h` fornecido pelo proprietário e utiliza `skCrypt` numa macro com literal de string para ofuscar a credencial desktop compilada. A credencial não fica adicionalmente declarada como variável global constexpr em texto simples. A biblioteca ofusca strings com XOR durante a compilação. **Não é criptografia que impeça engenharia reversa:** pessoas que possuem o binário podem recuperar a credencial desktop. Ela também não deve receber a Secret Key mestra. A proteção fundamental é o servidor validar sessão, licença, dispositivo e a credencial vigente em cada operação.
+Este exemplo inclui `include/skStr.h` e aplica `skCrypt` aos cinco valores de `config/config.h`: `Server`, `AppId`, `AppName`, `Version` e `SecretKey`. Cada função de configuração descriptografa uma cópia temporária, apaga seu buffer e devolve o valor para uso enquanto o programa executa. A credencial desktop não fica declarada como variável global `constexpr char[]` em texto simples. A biblioteca ofusca strings com XOR durante a compilação. **Não é criptografia que impeça engenharia reversa:** pessoas que possuem o binário podem recuperar a credencial desktop. Ela também não deve receber a Secret Key mestra. A proteção fundamental é o servidor validar sessão, licença, dispositivo e a credencial vigente em cada operação.
 
 A credencial desktop é reutilizável pelo cliente e deve ser tratada como material sensível. Sua rotação invalida os binários anteriores, mas não torna um software distribuído inviolável.
 
@@ -51,12 +78,18 @@ A credencial desktop é reutilizável pelo cliente e deve ser tratada como mater
 
 A configuração contém `Server`, `AppId`, `AppName` e `Version`. O cliente envia `X-Client-Version` nas requisições desktop v2; o servidor exige correspondência exata com a versão da aplicação. A versão necessária pode ser alterada no painel após confirmação. Quando o servidor mudar de versão, builds com a versão anterior passam a receber `426` nas verificações da sessão, mesmo que a Secret Key permaneça igual.
 
-`AppName` é exibido no menu. Ele não dá acesso à API nem é usado como segredo; `AppId` identifica o software. `SecretKey` é a credencial desktop revogável derivada no servidor e ofuscada por `skCrypt` no build.
+`AppName()` é exibido no menu. Ele não dá acesso à API nem é usado como segredo; `AppId()` identifica o software. `SecretKey()` devolve a credencial desktop revogável derivada no servidor e ofuscada por `skCrypt` no build.
 
 Não confunda `Version` com uma barreira criptográfica: um cliente modificado pode falsificar o cabeçalho de versão. Use a rotação da credencial desktop, verificações contínuas de licença e controles do backend como mecanismos reais de autorização.
 
 ## Validação do nome cadastrado
 
-O campo `AppName` em `config/config.h` deve coincidir **exatamente** com o nome salvo em **Configurações** da aplicação no painel. O cliente calcula SHA-256 do nome em UTF-8 e envia somente a impressão digital em `X-Client-App-Fingerprint`. Quando o nome no painel muda, clientes C++ compilados com o nome anterior deixam de autenticar ou renovar a sessão e recebem uma mensagem indicando que precisam ser atualizados. A configuração do projeto já utiliza `/utf-8` para permitir nomes acentuados.
+O valor de `AppName()` em `config/config.h` deve coincidir **exatamente** com o nome salvo em **Configurações** da aplicação no painel. O cliente calcula SHA-256 do nome em UTF-8 e envia somente a impressão digital em `X-Client-App-Fingerprint`. Quando o nome no painel muda, clientes C++ compilados com o nome anterior deixam de autenticar ou renovar a sessão e recebem uma mensagem indicando que precisam ser atualizados. A configuração do projeto já utiliza `/utf-8` para permitir nomes acentuados.
 
 Os campos `AppName` e `Version` são metadados verificáveis, não segredos criptográficos; um executável modificado pode falsificá-los. A autorização deve continuar dependente da credencial desktop rotativa, login, licença e validações no servidor.
+
+## Uso de skCrypt na configuração
+
+Todos os cinco valores de configuração estão envolvidos por `skCrypt(...)` no próprio `config/config.h`. As expressões `constexpr char X[] = skCrypt("...").decrypt();` **não são C++ válido**, pois `decrypt()` retorna um ponteiro em tempo de execução, e um array `constexpr` não pode ser inicializado a partir dele. Para manter o mesmo resultado funcional e compilar no Visual Studio, use as funções `ClientSettings::Server()`, `ClientSettings::AppId()`, `ClientSettings::AppName()`, `ClientSettings::Version()` e `ClientSettings::SecretKey()`.
+
+A ofuscação XOR de strings não deve ser interpretada como confidencialidade criptográfica ou defesa suficiente contra engenharia reversa. A Secret Key mestra nunca deve ser incluída no binário: o campo `SecretKey()` recebe **somente a credencial desktop derivada e rotacionável**, obtida no painel. O uso de `skCrypt` não modifica o protocolo desktop v2, as validações de nome e versão, nem a revogação pela rotação da chave.

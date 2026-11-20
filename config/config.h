@@ -1,10 +1,42 @@
 #pragma once
 
+#include <string>
+#include "../include/skStr.h"
+
 namespace ClientSettings {
-constexpr char Server[] = "https://api.getsecauth.com";
-constexpr char AppId[] = "SEU_APP_ID";
-constexpr char AppName[] = "MeuApp";
-constexpr char Version[] = "1.0.0";
+inline std::string Server() {
+    auto encrypted = skCrypt("https://api.getsecauth.com");
+    std::string result(encrypted.decrypt());
+    encrypted.clear();
+    return result;
 }
 
-#define SecretKey "COLE_A_CREDENCIAL_DESKTOP_DE_64_CARACTERES"
+inline std::string AppId() {
+    auto encrypted = skCrypt("SEU_APP_ID");
+    std::string result(encrypted.decrypt());
+    encrypted.clear();
+    return result;
+}
+
+inline std::string AppName() {
+    auto encrypted = skCrypt("MeuApp");
+    std::string result(encrypted.decrypt());
+    encrypted.clear();
+    return result;
+}
+
+inline std::string Version() {
+    auto encrypted = skCrypt("1.0.0");
+    std::string result(encrypted.decrypt());
+    encrypted.clear();
+    return result;
+}
+
+inline std::string SecretKey() {
+    auto encrypted = skCrypt("COLE_A_CREDENCIAL_DESKTOP_DE_64_CARACTERES");
+    std::string result(encrypted.decrypt());
+    encrypted.clear();
+    return result;
+}
+
+}

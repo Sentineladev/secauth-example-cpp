@@ -1,6 +1,5 @@
 #include "client.h"
 #include "../config/config.h"
-#include "../include/skStr.h"
 
 #include <windows.h>
 #include <conio.h>
@@ -112,7 +111,7 @@ void Show(const SecAuth::Profile& profile) {
 
 void Menu() {
     std::cout << "\n" << kAccent << kBold << "  SECAUTH" << kReset << kDim
-              << "   " << ClientSettings::AppName << " v" << ClientSettings::Version
+              << "   " << ClientSettings::AppName() << " v" << ClientSettings::Version()
               << "  ·  Cliente de exemplo (C++)\n" << kReset << "\n"
               << "  " << kAccent << "[1]" << kReset << " Registar licença\n"
               << "  " << kAccent << "[2]" << kReset << " Iniciar sessão\n"
@@ -191,13 +190,18 @@ int main() {
     PrepareConsole();
 
     try {
-        const std::string appId = Lower(ClientSettings::AppId);
-        auto obfuscated = skCrypt(SecretKey);
-        std::string desktopKey = obfuscated.decrypt();
-        SecAuth::Client client(Wide(ClientSettings::Server), appId, desktopKey,
-                               ClientSettings::Version, ClientSettings::AppName);
-        SecureZeroMemory(&desktopKey[0], desktopKey.size());
-        obfuscated.clear();
+        const std::string appId = Lower(ClientSettings::AppId());
+        const std::string server = ClientSettings::Server();
+        const std::string version = ClientSettings::Version();
+        const std::string appName = ClientSettings::AppName();
+        struct SensitiveValue {
+            std::string value;
+            ~SensitiveValue() {
+                if (!value.empty()) SecureZeroMemory(&value[0], value.size());
+            }
+        };
+        SensitiveValue credential{ClientSettings::SecretKey()};
+        SecAuth::Client client(Wide(server), appId, credential.value, version, appName);
         Run(client);
     } catch (const std::exception& error) {
         Fail(error.what());
