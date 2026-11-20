@@ -17,7 +17,7 @@ constexpr char AppName[] = "MeuApp";
 constexpr char Version[] = "1.0.0";
 }
 
-#define SECAUTH_DESKTOP_KEY "COLE_A_CREDENCIAL_DESKTOP_DE_64_CARACTERES"
+#define SecretKey "COLE_A_CREDENCIAL_DESKTOP_DE_64_CARACTERES"
 ```
 
 4. Configure `AppName` como o nome exibido no terminal e `Version` para a **mesma versão exigida no painel** (Configurações → Versão exigida do Client C++). Alterar uma versão no painel ou no executável sem atualizar a outra faz o servidor rejeitar login, cadastro e renovação. App Name é apenas identificação visual, não credencial de segurança.
@@ -51,7 +51,7 @@ A credencial desktop é reutilizável pelo cliente e deve ser tratada como mater
 
 A configuração contém `Server`, `AppId`, `AppName` e `Version`. O cliente envia `X-Client-Version` nas requisições desktop v2; o servidor exige correspondência exata com a versão da aplicação. A versão necessária pode ser alterada no painel após confirmação. Quando o servidor mudar de versão, builds com a versão anterior passam a receber `426` nas verificações da sessão, mesmo que a Secret Key permaneça igual.
 
-`AppName` é exibido no menu. Ele não dá acesso à API nem é usado como segredo; `AppId` identifica o software. `SECAUTH_DESKTOP_KEY` é a credencial desktop revogável derivada no servidor e ofuscada por `skCrypt` no build.
+`AppName` é exibido no menu. Ele não dá acesso à API nem é usado como segredo; `AppId` identifica o software. `SecretKey` é a credencial desktop revogável derivada no servidor e ofuscada por `skCrypt` no build.
 
 Não confunda `Version` com uma barreira criptográfica: um cliente modificado pode falsificar o cabeçalho de versão. Use a rotação da credencial desktop, verificações contínuas de licença e controles do backend como mecanismos reais de autorização.
 

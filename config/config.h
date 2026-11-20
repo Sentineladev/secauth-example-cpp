@@ -7,4 +7,4 @@ constexpr char AppName[] = "MeuApp";
 constexpr char Version[] = "1.0.0";
 }
 
-#define SECAUTH_DESKTOP_KEY "COLE_A_CREDENCIAL_DESKTOP_DE_64_CARACTERES"
+#define SecretKey "COLE_A_CREDENCIAL_DESKTOP_DE_64_CARACTERES"

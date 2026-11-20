@@ -192,7 +192,7 @@ int main() {
 
     try {
         const std::string appId = Lower(ClientSettings::AppId);
-        auto obfuscated = skCrypt(SECAUTH_DESKTOP_KEY);
+        auto obfuscated = skCrypt(SecretKey);
         std::string desktopKey = obfuscated.decrypt();
         SecAuth::Client client(Wide(ClientSettings::Server), appId, desktopKey,
                                ClientSettings::Version, ClientSettings::AppName);
